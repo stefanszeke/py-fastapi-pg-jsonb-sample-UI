@@ -28,17 +28,36 @@ type CaveApi = {
   region: string
 }
 
-type CaveDetails = {
+type EventRead = {
+  id: number
+  cave_id: number
   name: string
-  type: string
-  depthM: number
-  region: string
+  public_payload: Record<string, unknown>
+  caver_payload: Record<string, unknown> | null
+  scientific_payload: Record<string, unknown> | null
 }
 
 const mapEl = ref<HTMLElement | null>(null)
-const selectedCave = ref<CaveDetails | null>(null)
+const selectedCave = ref<CaveApi | null>(null)
+const eventData = ref<EventRead | null>(null)
+const loadingEvents = ref(false)
 
 let map: Map | null = null
+
+async function selectCave(cave: CaveApi) {
+  selectedCave.value = cave
+  eventData.value = null
+  loadingEvents.value = true
+  try {
+    const resp = await authFetch(`http://127.0.0.1:8000/events/by-cave/${cave.id}`)
+    const events: EventRead[] = await resp.json()
+    eventData.value = events[0] ?? null
+  } catch (e) {
+    console.error('Failed to load events', e)
+  } finally {
+    loadingEvents.value = false
+  }
+}
 
 onMounted(async () => {
   if (!mapEl.value) return
@@ -50,14 +69,11 @@ onMounted(async () => {
     (cave) =>
       new Feature({
         geometry: new Point(fromLonLat([cave.lon, cave.lat])),
-        name: cave.name,
-        type: cave.type,
-        depthM: cave.depth_m,
-        region: cave.region,
+        caveData: cave,
       }),
   )
 
-  const defaultPointStyle = new Style({
+  const pointStyle = new Style({
     image: new CircleStyle({
       radius: 7,
       fill: new Fill({ color: '#2563eb' }),
@@ -67,7 +83,7 @@ onMounted(async () => {
 
   const cavesLayer = new VectorLayer({
     source: new VectorSource({ features: caveFeatures }),
-    style: defaultPointStyle,
+    style: pointStyle,
   })
 
   map = new Map({
@@ -80,17 +96,11 @@ onMounted(async () => {
   })
 
   map.on('click', (event) => {
-    const result = map?.forEachFeatureAtPixel(event.pixel, (feature) => {
-      const cave = feature as Feature
-      return {
-        name: String(cave.get('name') ?? 'Unknown cave'),
-        type: String(cave.get('type') ?? 'Unknown type'),
-        depthM: Number(cave.get('depthM') ?? 0),
-        region: String(cave.get('region') ?? 'Unknown region'),
-      } satisfies CaveDetails
-    })
-
-    selectedCave.value = result ?? null
+    const cave = map?.forEachFeatureAtPixel(event.pixel, (f) =>
+      (f as Feature).get('caveData') as CaveApi,
+    )
+    if (cave) selectCave(cave)
+    else selectedCave.value = null
   })
 
   map.on('pointermove', (event) => {
@@ -100,11 +110,19 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (map) {
-    map.setTarget(undefined)
-    map = null
-  }
+  map?.setTarget(undefined)
+  map = null
 })
+
+function strVal(v: unknown): string {
+  return String(v ?? '')
+}
+function numVal(v: unknown): string {
+  return typeof v === 'number' ? v.toLocaleString() : String(v ?? '')
+}
+function listVal(v: unknown): string {
+  return Array.isArray(v) ? v.join(', ') : String(v ?? '')
+}
 </script>
 
 <template>
@@ -120,51 +138,8 @@ onUnmounted(() => {
         <h2>Cave Details</h2>
       </div>
 
-      <template v-if="selectedCave">
-        <div class="cave-name">{{ selectedCave.name }}</div>
-
-        <div class="detail-list">
-          <div class="detail-item">
-            <div class="detail-icon">
-              <svg viewBox="0 0 16 16" fill="none">
-                <path d="M8 1L15 14H1L8 1Z" fill="#60a5fa" stroke="#3b82f6" stroke-width="1" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <div>
-              <div class="detail-label">Type</div>
-              <div class="detail-value">{{ selectedCave.type }}</div>
-            </div>
-          </div>
-
-          <div class="detail-item">
-            <div class="detail-icon">
-              <svg viewBox="0 0 16 16" fill="none">
-                <line x1="8" y1="1" x2="8" y2="15" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
-                <path d="M4 11L8 15L12 11" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-              </svg>
-            </div>
-            <div>
-              <div class="detail-label">Depth</div>
-              <div class="detail-value">{{ selectedCave.depthM }} m</div>
-            </div>
-          </div>
-
-          <div class="detail-item">
-            <div class="detail-icon">
-              <svg viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="7" r="3.5" stroke="#3b82f6" stroke-width="1.5"/>
-                <path d="M8 10.5C8 10.5 3 14 3 15H13C13 14 8 10.5 8 10.5Z" fill="#60a5fa"/>
-              </svg>
-            </div>
-            <div>
-              <div class="detail-label">Region</div>
-              <div class="detail-value">{{ selectedCave.region }}</div>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template v-else>
+      <!-- Empty state -->
+      <template v-if="!selectedCave">
         <div class="empty-state">
           <svg class="empty-icon" viewBox="0 0 64 64" fill="none">
             <path d="M6 54L20 22L32 38L40 26L58 54H6Z" fill="#dbeafe" stroke="#93c5fd" stroke-width="2" stroke-linejoin="round"/>
@@ -172,6 +147,112 @@ onUnmounted(() => {
           </svg>
           <p>Click a cave marker<br />on the map to explore.</p>
         </div>
+      </template>
+
+      <!-- Cave selected -->
+      <template v-else>
+        <!-- Cave base info -->
+        <div class="cave-name">{{ selectedCave.name }}</div>
+        <div class="cave-meta">
+          {{ selectedCave.type }}&ensp;·&ensp;{{ selectedCave.region }}
+        </div>
+        <div class="cave-depth">
+          <svg viewBox="0 0 16 16" fill="none" width="13" height="13">
+            <line x1="8" y1="1" x2="8" y2="15" stroke="#64748b" stroke-width="2" stroke-linecap="round"/>
+            <path d="M4 11L8 15L12 11" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          {{ selectedCave.depth_m }} m depth
+        </div>
+
+        <!-- Loading events -->
+        <div v-if="loadingEvents" class="loading">
+          <span class="spinner"></span> Loading data…
+        </div>
+
+        <template v-else-if="eventData">
+          <!-- Public section -->
+          <div class="section">
+            <div class="section-head section-head--public">
+              <span class="section-title">General</span>
+              <span class="tier-badge tier-badge--public">Public</span>
+            </div>
+            <div class="kv-list">
+              <div class="kv-row">
+                <span class="kv-label">Kind</span>
+                <span class="kv-value">{{ strVal(eventData.public_payload.kind) }}</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Tags</span>
+                <span class="kv-value">
+                  <span
+                    v-for="tag in (eventData.public_payload.tags as string[])"
+                    :key="tag"
+                    class="tag"
+                  >{{ tag }}</span>
+                </span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Protected</span>
+                <span class="kv-value">
+                  <span
+                    class="pill"
+                    :class="eventData.public_payload.protected ? 'pill--yes' : 'pill--no'"
+                  >
+                    {{ eventData.public_payload.protected ? 'Yes' : 'No' }}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Caver section -->
+          <div v-if="eventData.caver_payload" class="section">
+            <div class="section-head section-head--caver">
+              <span class="section-title">Expedition</span>
+              <span class="tier-badge tier-badge--caver">Caver+</span>
+            </div>
+            <div class="kv-list">
+              <div class="kv-row">
+                <span class="kv-label">Length</span>
+                <span class="kv-value">{{ numVal(eventData.caver_payload.length_m) }} m</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Difficulty</span>
+                <span class="kv-value">
+                  <span class="pill pill--diff">{{ strVal(eventData.caver_payload.difficulty) }}</span>
+                </span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Equipment</span>
+                <span class="kv-value">{{ listVal(eventData.caver_payload.equipment_required) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Research section -->
+          <div v-if="eventData.scientific_payload" class="section">
+            <div class="section-head section-head--researcher">
+              <span class="section-title">Research</span>
+              <span class="tier-badge tier-badge--researcher">Researcher</span>
+            </div>
+            <div class="kv-list">
+              <div class="kv-row">
+                <span class="kv-label">Geology</span>
+                <span class="kv-value">{{ strVal(eventData.scientific_payload.geology) }}</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Discovered</span>
+                <span class="kv-value">{{ strVal(eventData.scientific_payload.discovered) }}</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-label">Species</span>
+                <span class="kv-value">{{ strVal(eventData.scientific_payload.species_count) }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-else-if="!loadingEvents" class="no-data">No event data for this cave.</div>
       </template>
     </aside>
   </div>
@@ -195,14 +276,15 @@ onUnmounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+/* ── Panel ─────────────────────────────── */
 .panel {
   width: 300px;
   display: flex;
   flex-direction: column;
   background: #ffffff;
-  overflow-y: auto;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow-y: auto;
 }
 
 .panel-header {
@@ -212,75 +294,170 @@ onUnmounted(() => {
   padding: 18px 20px 14px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
-}
-
-.panel-icon {
-  width: 20px;
-  height: 20px;
+  border-radius: 12px 12px 0 0;
   flex-shrink: 0;
 }
 
+.panel-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
 .panel-header h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: #475569;
 }
 
+/* ── Cave info ─────────────────────────── */
 .cave-name {
-  padding: 20px 20px 4px;
-  font-size: 17px;
+  padding: 16px 20px 2px;
+  font-size: 16px;
   font-weight: 700;
   color: #0f172a;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
-.detail-list {
-  padding: 12px 20px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.cave-meta {
+  padding: 0 20px 2px;
+  font-size: 12px;
+  color: #64748b;
 }
 
-.detail-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.detail-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: #eff6ff;
+.cave-depth {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  gap: 5px;
+  padding: 0 20px 14px;
+  font-size: 12px;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 4px;
 }
 
-.detail-icon svg {
-  width: 16px;
-  height: 16px;
+/* ── Sections ─────────────────────────── */
+.section {
+  margin: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
 }
 
-.detail-label {
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid transparent;
+}
+
+.section-head--public  { background: #eff6ff; border-bottom-color: #dbeafe; }
+.section-head--caver   { background: #f0fdf4; border-bottom-color: #dcfce7; }
+.section-head--researcher { background: #faf5ff; border-bottom-color: #ede9fe; }
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #334155;
+}
+
+/* ── Tier badges ─────────────────────── */
+.tier-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+
+.tier-badge--public     { background: #dbeafe; color: #1d4ed8; }
+.tier-badge--caver      { background: #dcfce7; color: #15803d; }
+.tier-badge--researcher { background: #ede9fe; color: #6d28d9; }
+
+/* ── KV rows ─────────────────────────── */
+.kv-list {
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kv-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.kv-label {
+  min-width: 76px;
+  color: #94a3b8;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #94a3b8;
-  margin-bottom: 3px;
+  letter-spacing: 0.4px;
+  padding-top: 2px;
+  flex-shrink: 0;
 }
 
-.detail-value {
-  font-size: 14px;
-  font-weight: 500;
+.kv-value {
   color: #1e293b;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  line-height: 1.4;
 }
 
+/* ── Tag chips ───────────────────────── */
+.tag {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ── Pills ───────────────────────────── */
+.pill {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pill--yes  { background: #dcfce7; color: #15803d; }
+.pill--no   { background: #fee2e2; color: #b91c1c; }
+.pill--diff { background: #f1f5f9; color: #475569; }
+
+/* ── Loading ─────────────────────────── */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Empty / no-data ─────────────────── */
 .empty-state {
   flex: 1;
   display: flex;
@@ -292,16 +469,13 @@ onUnmounted(() => {
   text-align: center;
 }
 
-.empty-icon {
-  width: 80px;
-  height: 80px;
-  opacity: 0.7;
-}
+.empty-icon { width: 80px; height: 80px; opacity: 0.7; }
 
-.empty-state p {
+.empty-state p, .no-data {
   margin: 0;
   font-size: 14px;
   color: #64748b;
   line-height: 1.6;
+  padding: 20px;
 }
 </style>
