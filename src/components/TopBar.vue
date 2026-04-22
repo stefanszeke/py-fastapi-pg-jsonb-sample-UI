@@ -42,8 +42,8 @@ function logout() {
     <div class="user-area">
       <div class="user-info">
         <div class="avatar">{{ initial }}</div>
-        <span class="role-badge" :class="`role-badge--${roleLabel.toLowerCase()}`">{{ roleLabel }}</span>
         <span class="username">{{ username }}</span>
+        <span class="role-badge" :class="`role-badge--${roleLabel.toLowerCase()}`">{{ roleLabel }}</span>
       </div>
       <button class="logout-btn" @click="logout">Log out</button>
     </div>

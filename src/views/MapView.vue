@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, onBeforeUnmount } from 'vue'
 import 'ol/ol.css'
 
 import { authFetch } from '@/api/http'
@@ -42,6 +42,38 @@ const selectedCave = ref<CaveApi | null>(null)
 const eventData = ref<EventRead | null>(null)
 const loadingEvents = ref(false)
 
+// ── Resizable panel ────────────────────────────────────────────
+const panelWidth = ref(300)
+let isResizing = false
+let startX = 0
+let startWidth = 0
+
+function onResizerMouseDown(e: MouseEvent) {
+  isResizing = true
+  startX = e.clientX
+  startWidth = panelWidth.value
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!isResizing) return
+  const delta = startX - e.clientX
+  panelWidth.value = Math.min(600, Math.max(200, startWidth + delta))
+}
+
+function onMouseUp() {
+  isResizing = false
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+}
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+})
+// ──────────────────────────────────────────────────────────────
+
 let map: Map | null = null
 
 async function selectCave(cave: CaveApi) {
@@ -81,6 +113,16 @@ onMounted(async () => {
     }),
   })
 
+  const selectedStyle = new Style({
+    image: new CircleStyle({
+      radius: 11,
+      fill: new Fill({ color: '#f59e0b' }),
+      stroke: new Stroke({ color: '#ffffff', width: 2.5 }),
+    }),
+  })
+
+  let activeFeature: Feature | null = null
+
   const cavesLayer = new VectorLayer({
     source: new VectorSource({ features: caveFeatures }),
     style: pointStyle,
@@ -96,9 +138,20 @@ onMounted(async () => {
   })
 
   map.on('click', (event) => {
-    const cave = map?.forEachFeatureAtPixel(event.pixel, (f) =>
-      (f as Feature).get('caveData') as CaveApi,
-    )
+    let clickedFeature: Feature | null = null
+    const cave = map?.forEachFeatureAtPixel(event.pixel, (f) => {
+      clickedFeature = f as Feature
+      return clickedFeature.get('caveData') as CaveApi
+    })
+
+    if (activeFeature) activeFeature.setStyle(undefined)
+    if (clickedFeature) {
+      ;(clickedFeature as Feature).setStyle(selectedStyle)
+      activeFeature = clickedFeature as Feature
+    } else {
+      activeFeature = null
+    }
+
     if (cave) selectCave(cave)
     else selectedCave.value = null
   })
@@ -129,7 +182,9 @@ function listVal(v: unknown): string {
   <div class="page">
     <div ref="mapEl" class="map"></div>
 
-    <aside class="panel">
+    <div class="resizer" @mousedown="onResizerMouseDown"></div>
+
+    <aside class="panel" :style="{ width: panelWidth + 'px' }">
       <div class="panel-header">
         <svg class="panel-icon" viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="12" r="3.5" fill="#2563eb" />
@@ -277,14 +332,27 @@ function listVal(v: unknown): string {
 }
 
 /* ── Panel ─────────────────────────────── */
+.resizer {
+  width: 6px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+
+.resizer:hover,
+.resizer:active {
+  background: #94a3b8;
+}
+
 .panel {
-  width: 300px;
   display: flex;
   flex-direction: column;
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .panel-header {
