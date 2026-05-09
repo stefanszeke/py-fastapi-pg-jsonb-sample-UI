@@ -18,9 +18,9 @@ function hasRole(role: string): boolean {
 }
 
 const roleLabel = computed(() => {
-  if (hasRole('admin')) return 'admin'
-  if (hasRole('events:read_scientific')) return 'Researcher'
-  if (hasRole('events:read_caver')) return 'Caver'
+  if (hasRole('admin')) return 'Admin'
+  if (hasRole('surveys:read_scientific')) return 'Researcher'
+  if (hasRole('surveys:read_caver')) return 'Caver'
   return 'Visitor'
 })
 
