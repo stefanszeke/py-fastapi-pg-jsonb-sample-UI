@@ -19,18 +19,18 @@ import Fill from 'ol/style/Fill.js'
 import Stroke from 'ol/style/Stroke.js'
 
 type CaveApi = {
-  id: number
+  id: string
   name: string
   lon: number
   lat: number
-  type: string
+  cave_type: string
   depth_m: number
   region: string
 }
 
-type EventRead = {
-  id: number
-  cave_id: number
+type SurveyRead = {
+  id: string
+  cave_id: string
   name: string
   public_payload: Record<string, unknown>
   caver_payload: Record<string, unknown> | null
@@ -39,7 +39,7 @@ type EventRead = {
 
 const mapEl = ref<HTMLElement | null>(null)
 const selectedCave = ref<CaveApi | null>(null)
-const eventData = ref<EventRead | null>(null)
+const surveyData = ref<SurveyRead | null>(null)
 const loadingEvents = ref(false)
 
 // ── Resizable panel ────────────────────────────────────────────
@@ -78,14 +78,14 @@ let map: Map | null = null
 
 async function selectCave(cave: CaveApi) {
   selectedCave.value = cave
-  eventData.value = null
+  surveyData.value = null
   loadingEvents.value = true
   try {
-    const resp = await authFetch(`http://127.0.0.1:8000/events/by-cave/${cave.id}`)
-    const events: EventRead[] = await resp.json()
-    eventData.value = events[0] ?? null
+    const resp = await authFetch(`http://127.0.0.1:8000/surveys/by-cave/${cave.id}`)
+    const surveys: SurveyRead[] = await resp.json()
+    surveyData.value = surveys[0] ?? null
   } catch (e) {
-    console.error('Failed to load events', e)
+    console.error('Failed to load surveys', e)
   } finally {
     loadingEvents.value = false
   }
@@ -209,7 +209,7 @@ function listVal(v: unknown): string {
         <!-- Cave base info -->
         <div class="cave-name">{{ selectedCave.name }}</div>
         <div class="cave-meta">
-          {{ selectedCave.type }}&ensp;·&ensp;{{ selectedCave.region }}
+          {{ selectedCave.cave_type }}&ensp;·&ensp;{{ selectedCave.region }}
         </div>
         <div class="cave-depth">
           <svg viewBox="0 0 16 16" fill="none" width="13" height="13">
@@ -224,7 +224,7 @@ function listVal(v: unknown): string {
           <span class="spinner"></span> Loading data…
         </div>
 
-        <template v-else-if="eventData">
+        <template v-else-if="surveyData">
           <!-- Public section -->
           <div class="section">
             <div class="section-head section-head--public">
@@ -234,13 +234,13 @@ function listVal(v: unknown): string {
             <div class="kv-list">
               <div class="kv-row">
                 <span class="kv-label">Kind</span>
-                <span class="kv-value">{{ strVal(eventData.public_payload.kind) }}</span>
+                <span class="kv-value">{{ strVal(surveyData.public_payload.kind) }}</span>
               </div>
               <div class="kv-row">
                 <span class="kv-label">Tags</span>
                 <span class="kv-value">
                   <span
-                    v-for="tag in (eventData.public_payload.tags as string[])"
+                    v-for="tag in (surveyData.public_payload.tags as string[])"
                     :key="tag"
                     class="tag"
                   >{{ tag }}</span>
@@ -251,9 +251,9 @@ function listVal(v: unknown): string {
                 <span class="kv-value">
                   <span
                     class="pill"
-                    :class="eventData.public_payload.protected ? 'pill--yes' : 'pill--no'"
+                    :class="surveyData.public_payload.protected ? 'pill--yes' : 'pill--no'"
                   >
-                    {{ eventData.public_payload.protected ? 'Yes' : 'No' }}
+                    {{ surveyData.public_payload.protected ? 'Yes' : 'No' }}
                   </span>
                 </span>
               </div>
@@ -261,7 +261,7 @@ function listVal(v: unknown): string {
           </div>
 
           <!-- Caver section -->
-          <div v-if="eventData.caver_payload" class="section">
+          <div v-if="surveyData.caver_payload" class="section">
             <div class="section-head section-head--caver">
               <span class="section-title">Expedition</span>
               <span class="tier-badge tier-badge--caver">Caver+</span>
@@ -269,23 +269,23 @@ function listVal(v: unknown): string {
             <div class="kv-list">
               <div class="kv-row">
                 <span class="kv-label">Length</span>
-                <span class="kv-value">{{ numVal(eventData.caver_payload.length_m) }} m</span>
+                <span class="kv-value">{{ numVal(surveyData.caver_payload.length_m) }} m</span>
               </div>
               <div class="kv-row">
                 <span class="kv-label">Difficulty</span>
                 <span class="kv-value">
-                  <span class="pill pill--diff">{{ strVal(eventData.caver_payload.difficulty) }}</span>
+                  <span class="pill pill--diff">{{ strVal(surveyData.caver_payload.difficulty) }}</span>
                 </span>
               </div>
               <div class="kv-row">
                 <span class="kv-label">Equipment</span>
-                <span class="kv-value">{{ listVal(eventData.caver_payload.equipment_required) }}</span>
+                <span class="kv-value">{{ listVal(surveyData.caver_payload.equipment_required) }}</span>
               </div>
             </div>
           </div>
 
           <!-- Research section -->
-          <div v-if="eventData.scientific_payload" class="section">
+          <div v-if="surveyData.scientific_payload" class="section">
             <div class="section-head section-head--researcher">
               <span class="section-title">Research</span>
               <span class="tier-badge tier-badge--researcher">Researcher</span>
@@ -293,15 +293,15 @@ function listVal(v: unknown): string {
             <div class="kv-list">
               <div class="kv-row">
                 <span class="kv-label">Geology</span>
-                <span class="kv-value">{{ strVal(eventData.scientific_payload.geology) }}</span>
+                <span class="kv-value">{{ strVal(surveyData.scientific_payload.geology) }}</span>
               </div>
               <div class="kv-row">
                 <span class="kv-label">Discovered</span>
-                <span class="kv-value">{{ strVal(eventData.scientific_payload.discovered) }}</span>
+                <span class="kv-value">{{ strVal(surveyData.scientific_payload.discovered) }}</span>
               </div>
               <div class="kv-row">
                 <span class="kv-label">Species</span>
-                <span class="kv-value">{{ strVal(eventData.scientific_payload.species_count) }}</span>
+                <span class="kv-value">{{ strVal(surveyData.scientific_payload.species_count) }}</span>
               </div>
             </div>
           </div>
