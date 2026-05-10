@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 type CaveApi = {
   id: string; name: string; lon: number; lat: number; cave_type: string
@@ -17,15 +17,30 @@ type EntranceRead = {
   lon: number; lat: number; entrance_type: string | null; is_public: boolean
 }
 
-defineProps<{
+const props = defineProps<{
   cave: CaveApi | null
   surveys: SurveyRead[]
   entrances: EntranceRead[]
   loading: boolean
   panelWidth: number
+  canSeeEntrances: boolean
+  canSeeSurveyLines: boolean
+}>()
+
+const emit = defineEmits<{
+  'fly-to-cave': []
+  'fly-to-entrance': [entrance: EntranceRead]
 }>()
 
 const activeTab = ref<'overview' | 'surveys' | 'entrances'>('overview')
+const activeEntranceId = ref<string | null>(null)
+
+watch(() => props.cave?.id, () => { activeEntranceId.value = null })
+
+function selectEntrance(entrance: EntranceRead) {
+  activeEntranceId.value = entrance.id
+  emit('fly-to-entrance', entrance)
+}
 
 function strVal(v: unknown) { return String(v ?? '') }
 function numVal(v: unknown) { return typeof v === 'number' ? v.toLocaleString() : String(v ?? '') }
@@ -34,12 +49,17 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
 
 <template>
   <aside class="panel" :style="{ width: panelWidth + 'px' }">
-    <div class="panel-header">
+    <div class="panel-header" :class="{ 'panel-header--clickable': !!cave }" @click="cave && $emit('fly-to-cave')" :title="cave ? 'Re-focus map on this cave' : undefined">
       <svg class="panel-icon" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="3.5" fill="#2563eb" />
         <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" />
       </svg>
       <h2>{{ cave ? cave.name : 'Cave Details' }}</h2>
+      <svg v-if="cave" class="refocus-icon" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="3" fill="#2563eb"/>
+        <path d="M10 2v2M10 16v2M2 10h2M16 10h2" stroke="#2563eb" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M4 4l1.5 1.5M14.5 14.5L16 16M16 4l-1.5 1.5M5.5 14.5L4 16" stroke="#93c5fd" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
     </div>
 
     <template v-if="!cave">
@@ -59,7 +79,7 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
           Surveys
           <span v-if="surveys.length" class="tab-count">{{ surveys.length }}</span>
         </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'entrances' }" @click="activeTab = 'entrances'">
+        <button v-if="canSeeEntrances" class="tab-btn" :class="{ active: activeTab === 'entrances' }" @click="activeTab = 'entrances'">
           Entrances
           <span v-if="entrances.length" class="tab-count">{{ entrances.length }}</span>
         </button>
@@ -159,7 +179,13 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
       <!-- Entrances -->
       <div v-else-if="activeTab === 'entrances'" class="tab-content">
         <div v-if="entrances.length === 0" class="no-data">No entrance data for this cave.</div>
-        <div v-for="entrance in entrances" :key="entrance.id" class="section">
+        <div
+          v-for="entrance in entrances"
+          :key="entrance.id"
+          class="section section--clickable"
+          :class="{ 'section--active': activeEntranceId === entrance.id }"
+          @click="selectEntrance(entrance)"
+        >
           <div class="section-head section-head--caver">
             <span class="section-title">{{ entrance.name || 'Entrance' }}</span>
             <span class="tier-badge tier-badge--caver">{{ entrance.entrance_type || 'Unknown' }}</span>
@@ -205,6 +231,24 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
   border-radius: 12px 12px 0 0;
   flex-shrink: 0;
 }
+
+.panel-header--clickable {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.panel-header--clickable:hover { background: #eff6ff; }
+
+.refocus-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.panel-header--clickable:hover .refocus-icon { opacity: 1; }
 
 .panel-icon { width: 18px; height: 18px; flex-shrink: 0; }
 
@@ -277,6 +321,21 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
+}
+
+.section--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.section--clickable:hover {
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.08);
+}
+
+.section--active {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
 }
 
 .section-head {

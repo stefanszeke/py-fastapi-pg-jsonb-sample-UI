@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, onBeforeUnmount, ref, watch } from 'vue'
+import { onMounted, onUnmounted, onBeforeUnmount, ref, watch, inject, computed } from 'vue'
+import type Keycloak from 'keycloak-js'
 import 'ol/ol.css'
 
 import Map from 'ol/Map.js'
@@ -21,6 +22,7 @@ import Stroke from 'ol/style/Stroke.js'
 import { authFetch } from '@/api/http'
 import CavePanel from '@/components/CavePanel.vue'
 import LayerControl from '@/components/LayerControl.vue'
+import CaveSearch from '@/components/CaveSearch.vue'
 
 type CaveApi = {
   id: string; name: string; lon: number; lat: number; cave_type: string
@@ -39,6 +41,10 @@ type EntranceRead = {
 }
 type SurveyLineRead = { id: string; cave_id: string; geom: string; payload: Record<string, unknown> }
 type ProtectedAreaRead = { id: string; name: string; geom: string; payload: Record<string, unknown> }
+
+const keycloak = inject<Keycloak>('keycloak')!
+const canSeeEntrances  = computed(() => keycloak.hasResourceRole('caves:read_restricted', 'caves-api'))
+const canSeeSurveyLines = computed(() => keycloak.hasResourceRole('surveys:read_caver', 'caves-api'))
 
 const mapEl = ref<HTMLElement | null>(null)
 const selectedCave = ref<CaveApi | null>(null)
@@ -84,8 +90,11 @@ let cavesLayer: VectorLayer<VectorSource> | null = null
 let protectedAreasLayer: VectorLayer<VectorSource> | null = null
 let entrancesLayer: VectorLayer<VectorSource> | null = null
 let surveyLinesLayer: VectorLayer<VectorSource> | null = null
+let cavesSource: VectorSource | null = null
 let entrancesSource: VectorSource | null = null
 let surveyLinesSource: VectorSource | null = null
+
+const caves = ref<CaveApi[]>([])
 
 const geojsonFormat = new GeoJSON({ featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' })
 
@@ -106,7 +115,27 @@ const selectedStyle = [
   }),
 ]
 
+const selectedEntranceStyle = [
+  new Style({
+    image: new CircleStyle({
+      radius: 16,
+      fill: new Fill({ color: 'rgba(124, 58, 237, 0.15)' }),
+      stroke: new Stroke({ color: '#7c3aed', width: 2 }),
+    }),
+  }),
+  new Style({
+    image: new RegularShape({
+      points: 4,
+      radius: 10,
+      angle: 0,
+      fill: new Fill({ color: '#7c3aed' }),
+      stroke: new Stroke({ color: '#ffffff', width: 2 }),
+    }),
+  }),
+]
+
 let activeFeature: Feature | null = null
+let activeEntranceFeature: Feature | null = null
 
 async function selectCave(cave: CaveApi) {
   selectedCave.value = cave
@@ -114,14 +143,15 @@ async function selectCave(cave: CaveApi) {
   entrances.value = []
   loading.value = true
 
+  if (activeEntranceFeature) { activeEntranceFeature.setStyle(undefined); activeEntranceFeature = null }
   entrancesSource?.clear()
   surveyLinesSource?.clear()
 
   const [surveysRes, entrancesRes, linesRes] = await Promise.allSettled([
     authFetch(`http://127.0.0.1:8000/surveys/by-cave/${cave.id}`),
-    authFetch(`http://127.0.0.1:8000/entrances/by-cave/${cave.id}`),
-    authFetch(`http://127.0.0.1:8000/survey-lines/by-cave/${cave.id}`),
-  ])
+    canSeeEntrances.value   ? authFetch(`http://127.0.0.1:8000/entrances/by-cave/${cave.id}`)   : Promise.reject<Response>('no-role'),
+    canSeeSurveyLines.value ? authFetch(`http://127.0.0.1:8000/survey-lines/by-cave/${cave.id}`) : Promise.reject<Response>('no-role'),
+  ] as [Promise<Response>, Promise<Response>, Promise<Response>])
 
   try {
     if (surveysRes.status === 'fulfilled' && surveysRes.value.ok)
@@ -133,7 +163,7 @@ async function selectCave(cave: CaveApi) {
       const entrancesData: EntranceRead[] = await entrancesRes.value.json()
       entrances.value = entrancesData
       entrancesSource?.addFeatures(
-        entrancesData.map(e => new Feature({ geometry: new Point(fromLonLat([e.lon, e.lat])) })),
+        entrancesData.map(e => new Feature({ geometry: new Point(fromLonLat([e.lon, e.lat])), entranceData: e })),
       )
     }
   } catch (err) { console.error('entrances fetch failed', err) }
@@ -148,6 +178,36 @@ async function selectCave(cave: CaveApi) {
   loading.value = false
 }
 
+function handleSearchSelect(cave: CaveApi) {
+  map?.getView().animate({ center: fromLonLat([cave.lon, cave.lat]), zoom: 13, duration: 600 })
+
+  const feature = cavesSource?.getFeatures().find(f => f.get('caveData')?.id === cave.id)
+  if (activeFeature) activeFeature.setStyle(undefined)
+  if (feature) {
+    ;(feature as Feature).setStyle(selectedStyle)
+    activeFeature = feature as Feature
+  }
+
+  selectCave(cave)
+}
+
+function handleFlyToCave() {
+  if (!selectedCave.value) return
+  if (activeEntranceFeature) { activeEntranceFeature.setStyle(undefined); activeEntranceFeature = null }
+  map?.getView().animate({ center: fromLonLat([selectedCave.value.lon, selectedCave.value.lat]), zoom: 13, duration: 600 })
+}
+
+function handleFlyToEntrance(entrance: EntranceRead) {
+  map?.getView().animate({ center: fromLonLat([entrance.lon, entrance.lat]), zoom: 16, duration: 600 })
+
+  if (activeEntranceFeature) activeEntranceFeature.setStyle(undefined)
+  const feature = entrancesSource?.getFeatures().find(f => f.get('entranceData')?.id === entrance.id)
+  if (feature) {
+    ;(feature as Feature).setStyle(selectedEntranceStyle)
+    activeEntranceFeature = feature as Feature
+  }
+}
+
 watch(layerVisible, (v) => {
   cavesLayer?.setVisible(v.caves)
   protectedAreasLayer?.setVisible(v.protectedAreas)
@@ -158,7 +218,7 @@ watch(layerVisible, (v) => {
 onMounted(async () => {
   if (!mapEl.value) return
 
-  const cavesSource          = new VectorSource()
+  cavesSource                = new VectorSource()
   const protectedAreasSource = new VectorSource()
   entrancesSource            = new VectorSource()
   surveyLinesSource          = new VectorSource()
@@ -221,11 +281,11 @@ onMounted(async () => {
     authFetch('http://127.0.0.1:8000/protected-areas'),
   ])
 
-  const caves: CaveApi[] = await cavesResp.json()
+  caves.value = await cavesResp.json()
   const areas: ProtectedAreaRead[] = await areasResp.json()
 
-  cavesSource.addFeatures(
-    caves.map(cave => new Feature({ geometry: new Point(fromLonLat([cave.lon, cave.lat])), caveData: cave })),
+  cavesSource!.addFeatures(
+    caves.value.map(cave => new Feature({ geometry: new Point(fromLonLat([cave.lon, cave.lat])), caveData: cave })),
   )
 
   areas.forEach(area => {
@@ -276,7 +336,14 @@ onUnmounted(() => {
     <div class="map-wrapper">
       <div ref="mapEl" class="map"></div>
       <div class="layer-control-wrap">
-        <LayerControl v-model="layerVisible" />
+        <LayerControl
+          v-model="layerVisible"
+          :can-see-entrances="canSeeEntrances"
+          :can-see-survey-lines="canSeeSurveyLines"
+        />
+      </div>
+      <div class="search-wrap-outer">
+        <CaveSearch :caves="caves" @select="handleSearchSelect" />
       </div>
     </div>
 
@@ -288,6 +355,10 @@ onUnmounted(() => {
       :entrances="entrances"
       :loading="loading"
       :panel-width="panelWidth"
+      :can-see-entrances="canSeeEntrances"
+      :can-see-survey-lines="canSeeSurveyLines"
+      @fly-to-cave="handleFlyToCave"
+      @fly-to-entrance="handleFlyToEntrance"
     />
   </div>
 </template>
@@ -320,6 +391,14 @@ onUnmounted(() => {
   position: absolute;
   top: 12px;
   left: 12px;
+  z-index: 100;
+}
+
+.search-wrap-outer {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 100;
 }
 

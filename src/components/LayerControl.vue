@@ -1,18 +1,30 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 const props = defineProps<{
   modelValue: { protectedAreas: boolean; caves: boolean; entrances: boolean; surveyLines: boolean }
+  canSeeEntrances: boolean
+  canSeeSurveyLines: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: typeof props.modelValue]
 }>()
 
-const LAYERS = [
-  { key: 'protectedAreas' as const, label: 'Protected Areas', color: '#22c55e', shape: 'circle' },
-  { key: 'caves' as const,          label: 'Caves',            color: '#2563eb', shape: 'circle' },
-  { key: 'entrances' as const,      label: 'Entrances',        color: '#7c3aed', shape: 'diamond' },
-  { key: 'surveyLines' as const,    label: 'Survey Lines',     color: '#ef4444', shape: 'circle' },
+const ALL_LAYERS = [
+  { key: 'protectedAreas' as const, label: 'Protected Areas', color: '#22c55e', shape: 'circle',  role: null },
+  { key: 'caves' as const,          label: 'Caves',            color: '#2563eb', shape: 'circle',  role: null },
+  { key: 'entrances' as const,      label: 'Entrances',        color: '#7c3aed', shape: 'diamond', role: 'entrances' },
+  { key: 'surveyLines' as const,    label: 'Survey Lines',     color: '#ef4444', shape: 'circle',  role: 'surveyLines' },
 ]
+
+const layers = computed(() =>
+  ALL_LAYERS.filter(l =>
+    l.role === null ||
+    (l.role === 'entrances'   && props.canSeeEntrances) ||
+    (l.role === 'surveyLines' && props.canSeeSurveyLines),
+  ),
+)
 
 function toggle(key: keyof typeof props.modelValue) {
   emit('update:modelValue', { ...props.modelValue, [key]: !props.modelValue[key] })
@@ -22,7 +34,7 @@ function toggle(key: keyof typeof props.modelValue) {
 <template>
   <div class="layer-control">
     <div class="lc-title">Layers</div>
-    <label v-for="layer in LAYERS" :key="layer.key" class="lc-row">
+    <label v-for="layer in layers" :key="layer.key" class="lc-row">
       <input type="checkbox" :checked="modelValue[layer.key]" @change="toggle(layer.key)" />
       <span
         class="lc-dot"
