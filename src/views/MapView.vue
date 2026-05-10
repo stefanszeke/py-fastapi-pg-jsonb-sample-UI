@@ -51,6 +51,8 @@ const selectedCave = ref<CaveApi | null>(null)
 const surveys = ref<SurveyRead[]>([])
 const entrances = ref<EntranceRead[]>([])
 const loading = ref(false)
+const loadError = ref(false)
+const initialLoading = ref(true)
 
 const layerVisible = ref({ protectedAreas: true, caves: true, entrances: true, surveyLines: true })
 
@@ -91,6 +93,7 @@ let protectedAreasLayer: VectorLayer<VectorSource> | null = null
 let entrancesLayer: VectorLayer<VectorSource> | null = null
 let surveyLinesLayer: VectorLayer<VectorSource> | null = null
 let cavesSource: VectorSource | null = null
+let protectedAreasSource: VectorSource | null = null
 let entrancesSource: VectorSource | null = null
 let surveyLinesSource: VectorSource | null = null
 
@@ -208,6 +211,34 @@ function handleFlyToEntrance(entrance: EntranceRead) {
   }
 }
 
+async function loadMapData() {
+  initialLoading.value = true
+  loadError.value = false
+  try {
+    const [cavesResp, areasResp] = await Promise.all([
+      authFetch('http://127.0.0.1:8000/caves'),
+      authFetch('http://127.0.0.1:8000/protected-areas'),
+    ])
+    caves.value = await cavesResp.json()
+    const areas: ProtectedAreaRead[] = await areasResp.json()
+    cavesSource!.addFeatures(
+      caves.value.map(cave => new Feature({ geometry: new Point(fromLonLat([cave.lon, cave.lat])), caveData: cave })),
+    )
+    areas.forEach(area => protectedAreasSource!.addFeatures(geojsonFormat.readFeatures(area.geom)))
+  } catch {
+    loadError.value = true
+  } finally {
+    initialLoading.value = false
+  }
+}
+
+function retryLoad() {
+  cavesSource?.clear()
+  protectedAreasSource?.clear()
+  caves.value = []
+  loadMapData()
+}
+
 watch(layerVisible, (v) => {
   cavesLayer?.setVisible(v.caves)
   protectedAreasLayer?.setVisible(v.protectedAreas)
@@ -218,10 +249,10 @@ watch(layerVisible, (v) => {
 onMounted(async () => {
   if (!mapEl.value) return
 
-  cavesSource                = new VectorSource()
-  const protectedAreasSource = new VectorSource()
-  entrancesSource            = new VectorSource()
-  surveyLinesSource          = new VectorSource()
+  cavesSource          = new VectorSource()
+  protectedAreasSource = new VectorSource()
+  entrancesSource      = new VectorSource()
+  surveyLinesSource    = new VectorSource()
 
   protectedAreasLayer = new VectorLayer({
     source: protectedAreasSource,
@@ -276,21 +307,7 @@ onMounted(async () => {
     view: new View({ center: fromLonLat([19.5, 48.7]), zoom: 8 }),
   })
 
-  const [cavesResp, areasResp] = await Promise.all([
-    authFetch('http://127.0.0.1:8000/caves'),
-    authFetch('http://127.0.0.1:8000/protected-areas'),
-  ])
-
-  caves.value = await cavesResp.json()
-  const areas: ProtectedAreaRead[] = await areasResp.json()
-
-  cavesSource!.addFeatures(
-    caves.value.map(cave => new Feature({ geometry: new Point(fromLonLat([cave.lon, cave.lat])), caveData: cave })),
-  )
-
-  areas.forEach(area => {
-    protectedAreasSource.addFeatures(geojsonFormat.readFeatures(area.geom))
-  })
+  await loadMapData()
 
   map.on('click', (event) => {
     let clickedFeature: Feature | null = null
@@ -344,6 +361,19 @@ onUnmounted(() => {
       </div>
       <div class="search-wrap-outer">
         <CaveSearch :caves="caves" @select="handleSearchSelect" />
+      </div>
+
+      <div v-if="initialLoading" class="map-banner map-banner--loading">
+        <span class="spinner-sm"></span> Loading map data…
+      </div>
+      <div v-else-if="loadError" class="map-banner map-banner--error">
+        <svg viewBox="0 0 20 20" fill="none" width="16" height="16" style="flex-shrink:0">
+          <circle cx="10" cy="10" r="9" stroke="#ef4444" stroke-width="1.8"/>
+          <line x1="10" y1="6" x2="10" y2="11" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="10" cy="14" r="1" fill="#ef4444"/>
+        </svg>
+        <span>Could not reach the server.</span>
+        <button class="retry-btn" @click="retryLoad">Retry</button>
       </div>
     </div>
 
@@ -401,6 +431,62 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 100;
 }
+
+.map-banner {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(6px);
+}
+
+.map-banner--loading {
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+}
+
+.map-banner--error {
+  background: rgba(255, 241, 241, 0.97);
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.spinner-sm {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.retry-btn {
+  margin-left: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid #ef4444;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.retry-btn:hover { background: #fee2e2; }
 
 .resizer {
   width: 6px;

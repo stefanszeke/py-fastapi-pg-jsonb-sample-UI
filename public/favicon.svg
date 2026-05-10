@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- background -->
+  <rect width="32" height="32" rx="7" fill="#FFFFFF "/>
+  <!-- mountain -->
+  <path d="M1 31 L13 6 L20 17 L25 9 L31 31Z" fill="#254AA5"/>
+  <!-- cave entrance arch -->
+  <path d="M9 31 Q9 22 16 22 Q23 22 23 31Z" fill="#0f172a"/>
+  <!-- stalactite -->
+  <polygon points="14,22 18,22 16,27" fill="#ED1C24 "/>
+</svg>
