@@ -58,22 +58,24 @@ const initialLoading = ref(true)
 const layerVisible = ref({ protectedAreas: true, caves: true, entrances: true, surveyLines: true })
 
 // ── Resizable panel ────────────────────────────────────────────
-const panelWidth = ref(300)
+const panelWidth = ref(380)
 let isResizing = false
 let startX = 0
 let startWidth = 0
+let maxWidth = 600
 
 function onResizerMouseDown(e: MouseEvent) {
   isResizing = true
   startX = e.clientX
   startWidth = panelWidth.value
+  maxWidth = Math.floor(window.innerWidth * 0.5)
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 }
 
 function onMouseMove(e: MouseEvent) {
   if (!isResizing) return
-  panelWidth.value = Math.min(600, Math.max(200, startWidth + (startX - e.clientX)))
+  panelWidth.value = Math.min(maxWidth, Math.max(200, startWidth + (startX - e.clientX)))
 }
 
 function onMouseUp() {

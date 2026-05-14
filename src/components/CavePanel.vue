@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import SensorChart from '@/components/SensorChart.vue'
 import { authFetch } from '@/api/http'
 
@@ -41,6 +41,14 @@ const emit = defineEmits<{
 
 const activeTab = ref<'overview' | 'surveys' | 'entrances' | 'sensors'>('overview')
 const activeEntranceId = ref<string | null>(null)
+const menuOpen = ref(false)
+const menuRef = ref<HTMLElement | null>(null)
+
+function openMenu() { menuOpen.value = true; document.addEventListener('click', onOutsideClick) }
+function closeMenu() { menuOpen.value = false; document.removeEventListener('click', onOutsideClick) }
+function onOutsideClick(e: MouseEvent) { if (menuRef.value && !menuRef.value.contains(e.target as Node)) closeMenu() }
+function switchTab(tab: typeof activeTab.value) { activeTab.value = tab; closeMenu() }
+onBeforeUnmount(() => document.removeEventListener('click', onOutsideClick))
 
 const sensors = ref<SensorRead[]>([])
 const sensorsLoading = ref(false)
@@ -101,20 +109,44 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
     </template>
 
     <template v-else>
-      <div class="tabs">
-        <button class="tab-btn" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">Overview</button>
-        <button class="tab-btn" :class="{ active: activeTab === 'surveys' }" @click="activeTab = 'surveys'">
-          Surveys
-          <span v-if="surveys.length" class="tab-count">{{ surveys.length }}</span>
-        </button>
-        <button v-if="canSeeEntrances" class="tab-btn" :class="{ active: activeTab === 'entrances' }" @click="activeTab = 'entrances'">
-          Entrances
-          <span v-if="entrances.length" class="tab-count">{{ entrances.length }}</span>
-        </button>
-        <button v-if="canSeeSensors" class="tab-btn" :class="{ active: activeTab === 'sensors' }" @click="activeTab = 'sensors'">
-          Sensors
-          <span v-if="sensorsLoaded && sensors.length" class="tab-count">{{ sensors.length }}</span>
-        </button>
+      <div class="tabs-bar">
+        <div class="tabs">
+          <button class="tab-btn" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">Overview</button>
+          <button class="tab-btn" :class="{ active: activeTab === 'surveys' }" @click="activeTab = 'surveys'">
+            Surveys
+            <span v-if="surveys.length" class="tab-count">{{ surveys.length }}</span>
+          </button>
+          <button v-if="canSeeEntrances" class="tab-btn" :class="{ active: activeTab === 'entrances' }" @click="activeTab = 'entrances'">
+            Entrances
+            <span v-if="entrances.length" class="tab-count">{{ entrances.length }}</span>
+          </button>
+          <button v-if="canSeeSensors" class="tab-btn" :class="{ active: activeTab === 'sensors' }" @click="activeTab = 'sensors'">
+            Sensors
+            <span v-if="sensorsLoaded && sensors.length" class="tab-count">{{ sensors.length }}</span>
+          </button>
+        </div>
+
+        <div class="tabs-menu" ref="menuRef">
+          <button class="menu-btn" @click.stop="menuOpen ? closeMenu() : openMenu()" :class="{ 'menu-btn--open': menuOpen }">
+            <svg viewBox="0 0 16 16" fill="none" width="14" height="14">
+              <line x1="2" y1="4"  x2="14" y2="4"  stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="2" y1="8"  x2="14" y2="8"  stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <div v-if="menuOpen" class="tabs-dropdown">
+            <button class="dropdown-item" :class="{ 'dropdown-item--active': activeTab === 'overview' }" @click="switchTab('overview')">Overview</button>
+            <button class="dropdown-item" :class="{ 'dropdown-item--active': activeTab === 'surveys' }" @click="switchTab('surveys')">
+              Surveys <span v-if="surveys.length" class="tab-count">{{ surveys.length }}</span>
+            </button>
+            <button v-if="canSeeEntrances" class="dropdown-item" :class="{ 'dropdown-item--active': activeTab === 'entrances' }" @click="switchTab('entrances')">
+              Entrances <span v-if="entrances.length" class="tab-count">{{ entrances.length }}</span>
+            </button>
+            <button v-if="canSeeSensors" class="dropdown-item" :class="{ 'dropdown-item--active': activeTab === 'sensors' }" @click="switchTab('sensors')">
+              Sensors <span v-if="sensorsLoaded && sensors.length" class="tab-count">{{ sensors.length }}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div v-if="loading" class="loading">
@@ -314,16 +346,80 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
 }
 
 /* ── Tabs ────────────────────────────── */
-.tabs {
+.tabs-bar {
   display: flex;
+  align-items: stretch;
   border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
   background: #f8fafc;
 }
 
-.tab-btn {
+.tabs {
+  display: flex;
   flex: 1;
-  padding: 9px 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tabs-menu {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid #e2e8f0;
+}
+
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menu-btn:hover,
+.menu-btn--open { background: #eff6ff; color: #2563eb; }
+
+.tabs-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  min-width: 140px;
+  z-index: 200;
+  padding: 4px 0;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.dropdown-item:hover { background: #f1f5f9; }
+.dropdown-item--active { color: #2563eb; background: #eff6ff; }
+
+.tab-btn {
+  flex: 1 0 auto;
+  padding: 9px 10px;
   border: none;
   background: none;
   font-size: 11px;
