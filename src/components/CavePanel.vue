@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import SensorChart from '@/components/SensorChart.vue'
+import { authFetch } from '@/api/http'
 
 type CaveApi = {
   id: string; name: string; lon: number; lat: number; cave_type: string
@@ -16,6 +18,10 @@ type EntranceRead = {
   id: string; cave_id: string; name: string | null
   lon: number; lat: number; entrance_type: string | null; is_public: boolean
 }
+type SensorRead = {
+  id: string; cave_id: string; sensor_code: string
+  name: string; description: string | null; installed_at: string | null
+}
 
 const props = defineProps<{
   cave: CaveApi | null
@@ -25,6 +31,7 @@ const props = defineProps<{
   panelWidth: number
   canSeeEntrances: boolean
   canSeeSurveyLines: boolean
+  canSeeSensors: boolean
 }>()
 
 const emit = defineEmits<{
@@ -32,10 +39,31 @@ const emit = defineEmits<{
   'fly-to-entrance': [entrance: EntranceRead]
 }>()
 
-const activeTab = ref<'overview' | 'surveys' | 'entrances'>('overview')
+const activeTab = ref<'overview' | 'surveys' | 'entrances' | 'sensors'>('overview')
 const activeEntranceId = ref<string | null>(null)
 
-watch(() => props.cave?.id, () => { activeEntranceId.value = null })
+const sensors = ref<SensorRead[]>([])
+const sensorsLoading = ref(false)
+const sensorsLoaded = ref(false)
+
+watch(() => props.cave?.id, () => {
+  activeEntranceId.value = null
+  sensors.value = []
+  sensorsLoaded.value = false
+})
+
+watch(activeTab, async (tab) => {
+  if (tab === 'sensors' && !sensorsLoaded.value && props.cave) {
+    sensorsLoading.value = true
+    try {
+      const resp = await authFetch(`http://127.0.0.1:8000/sensors/by-cave/${props.cave.id}`)
+      if (resp.ok) sensors.value = await resp.json()
+    } finally {
+      sensorsLoading.value = false
+      sensorsLoaded.value = true
+    }
+  }
+})
 
 function selectEntrance(entrance: EntranceRead) {
   activeEntranceId.value = entrance.id
@@ -82,6 +110,10 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
         <button v-if="canSeeEntrances" class="tab-btn" :class="{ active: activeTab === 'entrances' }" @click="activeTab = 'entrances'">
           Entrances
           <span v-if="entrances.length" class="tab-count">{{ entrances.length }}</span>
+        </button>
+        <button v-if="canSeeSensors" class="tab-btn" :class="{ active: activeTab === 'sensors' }" @click="activeTab = 'sensors'">
+          Sensors
+          <span v-if="sensorsLoaded && sensors.length" class="tab-count">{{ sensors.length }}</span>
         </button>
       </div>
 
@@ -173,6 +205,23 @@ function listVal(v: unknown) { return Array.isArray(v) ? v.join(', ') : String(v
               <div class="kv-row"><span class="kv-label">Species</span><span class="kv-value">{{ strVal(survey.scientific_payload.species_count) }}</span></div>
             </div>
           </div>
+        </template>
+      </div>
+
+      <!-- Sensors -->
+      <div v-else-if="activeTab === 'sensors'" class="tab-content">
+        <div v-if="sensorsLoading" class="loading">
+          <span class="spinner"></span> Loading sensors…
+        </div>
+        <div v-else-if="sensors.length === 0" class="no-data">No sensors installed in this cave.</div>
+        <template v-else>
+          <SensorChart
+            v-for="sensor in sensors"
+            :key="sensor.id"
+            :sensor-id="sensor.id"
+            :sensor-name="sensor.name"
+            :sensor-code="sensor.sensor_code"
+          />
         </template>
       </div>
 

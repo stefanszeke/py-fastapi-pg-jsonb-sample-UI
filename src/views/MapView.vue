@@ -43,8 +43,9 @@ type SurveyLineRead = { id: string; cave_id: string; geom: string; payload: Reco
 type ProtectedAreaRead = { id: string; name: string; geom: string; payload: Record<string, unknown> }
 
 const keycloak = inject<Keycloak>('keycloak')!
-const canSeeEntrances  = computed(() => keycloak.hasResourceRole('caves:read_restricted', 'caves-api'))
+const canSeeEntrances   = computed(() => keycloak.hasResourceRole('caves:read_restricted', 'caves-api'))
 const canSeeSurveyLines = computed(() => keycloak.hasResourceRole('surveys:read_caver', 'caves-api'))
+const canSeeSensors     = computed(() => keycloak.hasResourceRole('surveys:read_scientific', 'caves-api'))
 
 const mapEl = ref<HTMLElement | null>(null)
 const selectedCave = ref<CaveApi | null>(null)
@@ -387,6 +388,7 @@ onUnmounted(() => {
       :panel-width="panelWidth"
       :can-see-entrances="canSeeEntrances"
       :can-see-survey-lines="canSeeSurveyLines"
+      :can-see-sensors="canSeeSensors"
       @fly-to-cave="handleFlyToCave"
       @fly-to-entrance="handleFlyToEntrance"
     />
